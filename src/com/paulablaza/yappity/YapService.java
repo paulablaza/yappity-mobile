@@ -23,6 +23,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -124,6 +126,7 @@ public class YapService extends Service {
             return;
         }
         buzz();
+        listenStart = System.currentTimeMillis();
         setState(LISTENING, "Listening. Tap again when you're done.");
         ui.postDelayed(watchFull, 1000);
     }
@@ -241,7 +244,7 @@ public class YapService extends Service {
     }
 
     private void buzz() {
-        if (bubble != null) bubble.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (box != null) box.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
     }
 
     private void openApp() {
@@ -250,10 +253,17 @@ public class YapService extends Service {
     }
 
     // ---- Bubble ----
+    // Idle: a small square tab with Yappy-chan, tucked against the screen edge.
+    // Yapping: it opens into a box with her, the status, and cancel / done buttons.
 
     private static final int[] TALK = { R.drawable.talk_0, R.drawable.talk_1, R.drawable.talk_2, R.drawable.talk_3 };
     private static final int[] TIDY = { R.drawable.tidy_0, R.drawable.tidy_1, R.drawable.tidy_2, R.drawable.tidy_3 };
     private static final int[] DONE_FRAMES = { R.drawable.done_0, R.drawable.done_1, R.drawable.done_2, R.drawable.done_3 };
+
+    private LinearLayout box, info;
+    private TextView title, subtitle, cancelBtn, doneBtn;
+    private long listenStart;
+    private boolean dragging;
 
     private final Runnable animate = new Runnable() {
         public void run() {
@@ -274,43 +284,113 @@ public class YapService extends Service {
             default: res = R.drawable.base;
         }
         bubble.setImageResource(res);
-        bubble.setAlpha(state == IDLE ? 0.8f : 1f);
+        boolean open = state != IDLE;
+        info.setVisibility(open ? View.VISIBLE : View.GONE);
+        cancelBtn.setVisibility(state == LISTENING ? View.VISIBLE : View.GONE);
+        doneBtn.setVisibility(state == LISTENING ? View.VISIBLE : View.GONE);
+        box.setAlpha(open ? 1f : 0.92f);
+        switch (state) {
+            case LISTENING:
+                long s = (System.currentTimeMillis() - listenStart) / 1000;
+                title.setText("Listening");
+                subtitle.setText(String.format(java.util.Locale.US, "%d:%02d", s / 60, s % 60));
+                subtitle.setTextColor(Ui.ACCENT_SOFT);
+                break;
+            case WORKING: title.setText("Writing it down"); subtitle.setText("Cleaning it up"); subtitle.setTextColor(0xFFA1A1AA); break;
+            case DONE: title.setText("Copied"); subtitle.setText("Tap a text box and paste"); subtitle.setTextColor(Ui.GOOD); break;
+            case OOPS: title.setText("Oops"); subtitle.setText(message); subtitle.setTextColor(Ui.BAD); break;
+            default: break;
+        }
+        if (frame == 0) place();
     }
 
     private void showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return;
-        float dp = getResources().getDisplayMetrics().density;
-        int size = (int) (60 * dp);
+
+        box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(px(6), px(6), px(6), px(6));
+        box.setBackground(Ui.rounded(Ui.PANEL, px(16), 0x2EFFFFFF, px(1)));
+
         bubble = new ImageView(this);
         bubble.setScaleType(ImageView.ScaleType.FIT_CENTER);
         bubble.setContentDescription("Yappity. Tap to yap.");
-        lp = new WindowManager.LayoutParams(size, size,
+        box.addView(bubble, new LinearLayout.LayoutParams(px(44), px(44)));
+
+        info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(px(10), 0, px(12), 0);
+        title = new TextView(this);
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(15);
+        title.setTypeface(Ui.MEDIUM);
+        subtitle = new TextView(this);
+        subtitle.setTextSize(12.5f);
+        subtitle.setMaxWidth(px(200));
+        subtitle.setMaxLines(2);
+        info.addView(title);
+        info.addView(subtitle);
+        box.addView(info);
+
+        cancelBtn = roundButton("✕", 0x2EFFFFFF, "Cancel");
+        cancelBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { cancel(); } });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(px(38), px(38));
+        bp.setMarginEnd(px(6));
+        box.addView(cancelBtn, bp);
+        doneBtn = roundButton("✓", Ui.ACCENT, "Done");
+        doneBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { finish(); } });
+        box.addView(doneBtn, new LinearLayout.LayoutParams(px(38), px(38)));
+
+        lp = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = Store.prefs(this).getInt("bubble_x", getResources().getDisplayMetrics().widthPixels - size);
+        lp.gravity = Gravity.TOP | Gravity.RIGHT;
         lp.y = Store.prefs(this).getInt("bubble_y", (int) (getResources().getDisplayMetrics().heightPixels * 0.4));
-        bubble.setOnTouchListener(new BubbleTouch((int) (8 * dp)));
-        try { wm.addView(bubble, lp); }
-        catch (Exception e) { Log.w("bubble: " + e); bubble = null; return; }
+        bubble.setOnTouchListener(new BubbleTouch(px(8)));
+        try { wm.addView(box, lp); }
+        catch (Exception e) { Log.w("bubble: " + e); bubble = null; box = null; return; }
         drawBubble();
     }
 
+    private TextView roundButton(String label, int color, String desc) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextColor(0xFFFFFFFF);
+        b.setTextSize(16);
+        b.setGravity(Gravity.CENTER);
+        b.setContentDescription(desc);
+        b.setBackground(Ui.rounded(color, px(19), 0, 0));
+        return b;
+    }
+
+    // Docks the box to its side. Idle, the tab tucks a little past the edge.
+    private void place() {
+        if (box == null || dragging) return;
+        boolean right = Store.prefs(this).getBoolean("bubble_right", true);
+        lp.gravity = Gravity.TOP | (right ? Gravity.RIGHT : Gravity.LEFT);
+        lp.x = state == IDLE ? -px(8) : px(8);
+        try { wm.updateViewLayout(box, lp); } catch (Exception ignored) { }
+    }
+
     private void hideBubble() {
-        if (bubble == null) return;
-        try { wm.removeView(bubble); } catch (Exception ignored) { }
+        if (box == null) return;
+        try { wm.removeView(box); } catch (Exception ignored) { }
+        box = null;
         bubble = null;
     }
 
     boolean bubbleShown() { return bubble != null; }
 
-    // Tap to yap, drag to move, long-press to open Yappity.
+    private int px(float v) { return (int) (v * getResources().getDisplayMetrics().density); }
+
+    // Tap to yap, drag to move (it snaps to the nearest side), long-press to open Yappity.
     private class BubbleTouch implements View.OnTouchListener {
         final int slop;
         float downX, downY;
-        int startX, startY;
-        boolean dragging, longPressed;
+        int startLeft, startY;
+        boolean longPressed;
         final Runnable longPress = new Runnable() {
             public void run() {
                 longPressed = true;
@@ -322,10 +402,13 @@ public class YapService extends Service {
         BubbleTouch(int slop) { this.slop = slop; }
 
         public boolean onTouch(View v, MotionEvent e) {
+            int screenW = getResources().getDisplayMetrics().widthPixels;
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     downX = e.getRawX(); downY = e.getRawY();
-                    startX = lp.x; startY = lp.y;
+                    int[] at = new int[2];
+                    box.getLocationOnScreen(at);
+                    startLeft = at[0]; startY = lp.y;
                     dragging = false; longPressed = false;
                     ui.postDelayed(longPress, 600);
                     return true;
@@ -333,21 +416,27 @@ public class YapService extends Service {
                     float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
                     if (!dragging && Math.hypot(dx, dy) > slop) { dragging = true; ui.removeCallbacks(longPress); }
                     if (dragging) {
-                        lp.x = startX + (int) dx;
+                        lp.gravity = Gravity.TOP | Gravity.LEFT;
+                        lp.x = startLeft + (int) dx;
                         lp.y = startY + (int) dy;
-                        try { wm.updateViewLayout(bubble, lp); } catch (Exception ignored) { }
+                        try { wm.updateViewLayout(box, lp); } catch (Exception ignored) { }
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
                     ui.removeCallbacks(longPress);
                     if (dragging) {
-                        Store.prefs(YapService.this).edit().putInt("bubble_x", lp.x).putInt("bubble_y", lp.y).apply();
+                        dragging = false;
+                        boolean right = e.getRawX() > screenW / 2f;
+                        Store.prefs(YapService.this).edit().putBoolean("bubble_right", right).putInt("bubble_y", lp.y).apply();
+                        place();
                     } else if (!longPressed) {
                         toggle();
                     }
                     return true;
                 case MotionEvent.ACTION_CANCEL:
                     ui.removeCallbacks(longPress);
+                    dragging = false;
+                    place();
                     return true;
             }
             return false;
