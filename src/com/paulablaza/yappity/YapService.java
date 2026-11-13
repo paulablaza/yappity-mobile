@@ -226,7 +226,8 @@ public class YapService extends Service {
 
     static String tidy(String text) {
         if (text == null) return "";
-        String t = text.replace(" — ", ", ").replace(" – ", ", ").replace("—", ", ").replace("–", "-");
+        String em = String.valueOf((char) 0x2014), en = String.valueOf((char) 0x2013);
+        String t = text.replace(" " + em + " ", ", ").replace(" " + en + " ", ", ").replace(em, ", ").replace(en, "-");
         while (t.contains(" ,")) t = t.replace(" ,", ",");
         while (t.contains(",,")) t = t.replace(",,", ",");
         while (t.contains("  ")) t = t.replace("  ", " ");
