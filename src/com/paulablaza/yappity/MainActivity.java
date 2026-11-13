@@ -69,7 +69,7 @@ public class MainActivity extends Activity {
         super.onResume();
         open = new WeakReference<>(this);
         refresh();
-        if (Store.prefs(this).getBoolean("enabled", false) && ready() && !YapService.running()) {
+        if (Store.prefs(this).getBoolean("enabled", false) && ready()) {
             YapService.start(this, null);
             page.postDelayed(new Runnable() { public void run() { refresh(); } }, 400);
         }

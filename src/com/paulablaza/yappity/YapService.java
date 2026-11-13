@@ -89,6 +89,10 @@ public class YapService extends Service {
             Store.prefs(this).edit().putBoolean("bubble", on).apply();
             if (on) showBubble(); else hideBubble();
             updateNotification();
+        } else if (a == null) {
+            // Opening the app re-sends this. Brings the bubble back if it was missing,
+            // for example when the floating permission was granted after Yappity started.
+            if (bubble == null && Store.prefs(this).getBoolean("bubble", true)) { showBubble(); updateNotification(); }
         } else if (ACTION_QUIT.equals(a)) {
             cancel();
             stopForeground(true);
