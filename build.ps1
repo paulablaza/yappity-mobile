@@ -37,8 +37,11 @@ New-Item -ItemType Directory -Force "$b\res", "$b\gen", "$b\classes", "$b\dex", 
 
 Write-Host "Resources"
 Run $aapt2 @('compile', '--dir', 'res', '-o', "$b\res.zip")
-Run $aapt2 @('link', '-I', $androidJar, '--manifest', 'AndroidManifest.xml', '-o', "$b\unsigned.apk",
+$linkArgs = @('link', '-I', $androidJar, '--manifest', 'AndroidManifest.xml', '-o', "$b\unsigned.apk",
     '--java', "$b\gen", '--min-sdk-version', '26', '--target-sdk-version', '35', "$b\res.zip")
+# Test builds (no release key) are debuggable, so adb can read their logs and files.
+if (-not $env:YAPPITY_KEYSTORE) { $linkArgs += '--debug-mode' }
+Run $aapt2 $linkArgs
 
 Write-Host "Java"
 $sources = @(Get-ChildItem -Recurse -Filter *.java 'src', "$b\gen" | ForEach-Object { $_.FullName })
